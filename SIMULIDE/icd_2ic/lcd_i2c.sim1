@@ -1,0 +1,13 @@
+<circuit version="1.1.0-SR2" rev="260312" stepSize="1000000" stepsPS="1000000" NLsteps="100000" reaStep="1000000" animate="0" >
+
+<item itemtype="Subcircuit" CircId="Uno-1" mainComp="false" Show_id="true" Show_Val="false" Pos="-204,-192" rotation="0" hflip="1" vflip="1" label="Uno-1" idLabPos="0,-20" labelrot="0" valLabPos="-16,20" valLabRot="0" Logic_Symbol="false">
+<mainCompProps MainCompId="mega328-109" Frequency="16 MHz" Program="sketch_oct20c/build/arduino.avr.uno/sketch_oct20c.ino.hex" Auto_Load="false" saveEepr="true" MainMcu="true" SerialMon="-1" />
+</item>
+
+<item itemtype="Aip31068_i2c" CircId="Aip31068_i2c-2" mainComp="false" Show_id="true" Show_Val="false" Pos="32,44" rotation="0" hflip="1" vflip="1" label="Aip31068_i2c-2" idLabPos="70,-82" labelrot="0" valLabPos="-16,20" valLabRot="0" Rows="2" Cols="16" Control_Code="62" Frequency="100 _kHz" />
+
+<item itemtype="Connector" uid="Connector-2" startpinid="Uno-1-A5" endpinid="Aip31068_i2c-2PinSCL" pointList="-52,-176,268,-176,268,52,56,52" />
+
+<item itemtype="Connector" uid="Connector-7" startpinid="Uno-1-A4" endpinid="Aip31068_i2c-2PinSDA" pointList="-52,-168,-52,52,48,52" />
+
+</circuit>
