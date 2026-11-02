@@ -14,3 +14,5 @@ venv/
 #Répertoires de dépendances ou de compilation node_modules/
 node_modules/
 chemin_vers_les_dossier_build
+~$*
+arduino_secrets.h
