@@ -1,278 +1,188 @@
-
- // TempHumiX : Wi-Fi, horloge, DHT22, LCD RGB et bargraphe
- // Carte : Arduino Uno R4 WiFi
+// Projet IOT - TempHumiX
+// Partie 6.1.3 : connexion au WiFi IoT + mise a l'heure du RTC par NTP
 
 #include <Wire.h>
 #include <rgb_lcd.h>
 #include <DHT.h>
+#include "RTC.h"
 #include <WiFiS3.h>
+#include <NTPClient.h>
+#include "arduino_secrets.h"   // SSID et mot de passe, pas envoye sur GitHub
 
-// Broches
-#define PIN_LED_VIE 2
-#define PIN_BARGRAPH 3
-#define NB_LEDS 10
+#define VERSION "V1.0"
+#define LED_VIE 2
 #define PIN_DHT A0
 
-// Objets
 rgb_lcd lcd;
 DHT dht(PIN_DHT, DHT22);
 
-// Identifiants Wi-Fi
-char ssid[] = "IoT IMT Nord Europe";
-char pass[] = "<mot de passe WiFi>";
+// serveur NTP de l'ecole, +3600 s pour etre a l'heure francaise (heure d'hiver)
+WiFiUDP udp;
+NTPClient ntp(udp, IPAddress(192, 168, 1, 254), 3600);
 
-char adresseIP[20] = "IP indisponible";
+int etat = 0;
+bool ledAllumee = false;
+bool wifiOk = false;
+bool heureOk = false;   // passe a true des que le NTP a repondu au moins une fois
+int compteurNtp = 0;    // pour retenter la synchro regulierement
 
-// Date et heure initiales
-int jour = 10, mois = 2, annee = 25;
-int heure = 13, minute = 42, seconde = 29;
+bool setup_wifi() {
+  Serial.print("Connexion a ");
+  Serial.println(SECRET_SSID);
 
-// Mesures
-float temperature = 0;
-float humidite = 0;
+  WiFi.begin(SECRET_SSID, SECRET_PASS);
 
-// Cadences temporelles
-unsigned long dernierTempsLed = 0;
-unsigned long dernierTempsSeconde = 0;
-unsigned long dernierTempsCapteur = 0;
-
-bool etatLed = false;
-
-// --------------------------------------------------
-// Avancer la date et l'heure
-// --------------------------------------------------
-void avancerDate()
-{
-  seconde++;
-
-  if (seconde >= 60)
-  {
-    seconde = 0;
-    minute++;
-  }
-
-  if (minute >= 60)
-  {
-    minute = 0;
-    heure++;
-  }
-
-  if (heure >= 24)
-  {
-    heure = 0;
-    jour++;
-  }
-
-  // Calendrier simplifie : 30 jours par mois
-  if (jour > 30)
-  {
-    jour = 1;
-    mois++;
-  }
-
-  if (mois > 12)
-  {
-    mois = 1;
-    annee++;
-  }
-}
-
-// --------------------------------------------------
-// Afficher l'humidite sur le bargraphe
-// --------------------------------------------------
-void afficherBargraphe()
-{
-  int nb = (int)(humidite / 10.0);
-  nb = constrain(nb, 0, NB_LEDS);
-
-  for (int i = 0; i < NB_LEDS; i++)
-  {
-    digitalWrite(PIN_BARGRAPH + i,
-                 i < nb ? HIGH : LOW);
-  }
-}
-
-// --------------------------------------------------
-// Initialisation
-// --------------------------------------------------
-void setup()
-{
-  // Configuration des sorties
-  pinMode(PIN_LED_VIE, OUTPUT);
-
-  for (int i = 0; i < NB_LEDS; i++)
-  {
-    pinMode(PIN_BARGRAPH + i, OUTPUT);
-    digitalWrite(PIN_BARGRAPH + i, LOW);
-  }
-
-  // Port serie
-  Serial.begin(9600);
-
-  // Initialisation du LCD RGB
-  lcd.begin(16, 2);
-  lcd.setRGB(0, 128, 128);
-  lcd.setCursor(0, 0);
-  lcd.print("Connexion WiFi");
-
-  Serial.println("Connexion au Wi-Fi...");
-
-  // Demarrer la connexion Wi-Fi
-  WiFi.begin(ssid, pass);
-
-  // Attendre jusqu'a 30 secondes une IP valide
-  unsigned long debutConnexion = millis();
-  const unsigned long delaiMax = 30000UL;
-  bool ipValide = false;
-
-  while (millis() - debutConnexion < delaiMax)
-  {
-    if (WiFi.status() == WL_CONNECTED)
-    {
-      IPAddress ip = WiFi.localIP();
-
-      if (ip != IPAddress(0, 0, 0, 0))
-      {
-        snprintf(adresseIP, sizeof(adresseIP),
-                 "%d.%d.%d.%d",
-                 ip[0], ip[1], ip[2], ip[3]);
-
-        ipValide = true;
-        break;
-      }
+  // on laisse 10 s max pour avoir une IP, sinon on abandonne
+  for (int i = 0; i < 20; i++) {
+    if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
+      Serial.print("Connecte, IP : ");
+      Serial.println(WiFi.localIP());
+      return true;
     }
-
-    lcd.setCursor(0, 1);
-    lcd.print("Attente IP...   ");
-
-    Serial.println("En attente de l'adresse IP...");
     delay(500);
   }
 
-  // Afficher le resultat de la connexion
-  lcd.clear();
-
-  if (ipValide)
-  {
-    Serial.print("Wi-Fi connecte. IP : ");
-    Serial.println(adresseIP);
-
-    lcd.setCursor(0, 0);
-    lcd.print("WiFi connecte !");
-    lcd.setCursor(0, 1);
-    lcd.print(adresseIP);
-
-    delay(5000);
-  }
-  else
-  {
-    strcpy(adresseIP, "IP indisponible");
-
-    Serial.println("Echec : aucune IP obtenue.");
-
-    lcd.setCursor(0, 0);
-    lcd.print("IP indisponible");
-    lcd.setCursor(0, 1);
-    lcd.print("Verifier WiFi");
-
-    delay(3000);
-  }
-
-  // Initialisation du capteur DHT22
-  dht.begin();
-
-  lcd.clear();
-
-  // Initialiser les compteurs temporels
-  unsigned long maintenant = millis();
-  dernierTempsLed = maintenant;
-  dernierTempsSeconde = maintenant;
-  dernierTempsCapteur = maintenant;
+  Serial.println("Pas de connexion WiFi");
+  return false;
 }
 
-// --------------------------------------------------
-// Boucle principale
-// --------------------------------------------------
-void loop()
-{
-  unsigned long tempsActuel = millis();
+bool synchroHeure() {
+  if (!wifiOk) return false;
 
-  char date[17];
+  // forceUpdate attend la reponse 1 s max, donc ca ne bloque pas longtemps
+  if (!ntp.forceUpdate()) {
+    Serial.println("NTP : pas de reponse");
+    return false;
+  }
+
+  // on recopie l'heure recue dans le RTC
+  RTCTime heureNtp((time_t)ntp.getEpochTime());
+  RTC.setTime(heureNtp);
+
+  Serial.print("Heure NTP : ");
+  Serial.println(ntp.getFormattedTime());
+  return true;
+}
+
+void setup() {
+  Serial.begin(9600);
+
+  pinMode(LED_VIE, OUTPUT);
+  dht.begin();
+
+  lcd.begin(16, 2);
+  lcd.setRGB(0, 128, 128);
+  lcd.print("Connexion WiFi..");
+
+  // heure par defaut, au cas ou le NTP ne repond pas
+  RTC.begin();
+  RTCTime depart(1, Month::JANUARY, 2026, 0, 0, 0, DayOfWeek::THURSDAY, SaveLight::SAVING_TIME_INACTIVE);
+  RTC.setTime(depart);
+
+  wifiOk = setup_wifi();
+
+  if (wifiOk) {
+    ntp.begin();
+    heureOk = synchroHeure();
+  }
+
+  // ecran d'accueil pendant 3 s avant l'affichage classique
+  ecranAccueil();
+  delay(3000);
+  lcd.clear();
+}
+
+void loop() {
+  ledAllumee = !ledAllumee;
+  digitalWrite(LED_VIE, ledAllumee);
+
+  switch (etat) {
+    case 0:   // t = 0 s : date + capteur
+      afficherDate();
+      lireCapteur();
+      break;
+
+    case 2:   // t = 1 s : juste la date
+      afficherDate();
+      break;
+  }
+
+  // resynchro NTP : toutes les 10 s tant que ca n'a jamais marche,
+  // puis toutes les 60 s une fois qu'on a eu l'heure
+  compteurNtp++;
+  int limite = heureOk ? 120 : 20;
+  if (compteurNtp >= limite) {
+    compteurNtp = 0;
+    if (synchroHeure()) heureOk = true;
+  }
+
+  etat = (etat + 1) % 4;
+  delay(500);
+}
+
+void ecranAccueil() {
+  RTCTime t;
+  RTC.getTime(t);
+
+  // ligne 1 : version + date, ligne 2 : adresse IP
   char ligne[17];
-  char txtT[8];
-  char txtH[8];
+  snprintf(ligne, sizeof(ligne), "%s  %02d/%02d/%d", VERSION,
+           t.getDayOfMonth(), Month2int(t.getMonth()), t.getYear());
 
-  // 1. LED de vie : alternance toutes les 250 ms
-  if (tempsActuel - dernierTempsLed >= 250)
-  {
-    dernierTempsLed = tempsActuel;
-    etatLed = !etatLed;
+  lcd.clear();
+  lcd.print(ligne);
+  lcd.setCursor(0, 1);
 
-    digitalWrite(PIN_LED_VIE,
-                 etatLed ? HIGH : LOW);
+  if (wifiOk) lcd.print(WiFi.localIP());
+  else lcd.print("Pas de WiFi");
+
+  Serial.println(ligne);
+}
+
+void afficherDate() {
+  lcd.setCursor(0, 0);
+
+  // tant que le NTP n'a jamais repondu, l'heure du RTC est fausse, on le signale
+  if (!heureOk) {
+    lcd.print("Synchro NTP KO  ");
+    return;
   }
 
-  // 2. Horloge : mise a jour chaque seconde
-  if (tempsActuel - dernierTempsSeconde >= 1000)
-  {
-    dernierTempsSeconde += 1000;
-    avancerDate();
+  RTCTime t;
+  RTC.getTime(t);
 
-    snprintf(date, sizeof(date),
-             "%02d/%02d/%02d %02d:%02d",
-             jour, mois, annee, heure, minute);
+  // pas assez de place pour l'annee ET les secondes sur 16 caracteres
+  char ligne[17];
+  snprintf(ligne, sizeof(ligne), "%02d/%02d %02d:%02d:%02d",
+           t.getDayOfMonth(), Month2int(t.getMonth()),
+           t.getHour(), t.getMinutes(), t.getSeconds());
 
-    lcd.setCursor(0, 0);
-    lcd.print(date);
-    lcd.print(" ");
+  lcd.print(ligne);
+}
+
+void lireCapteur() {
+  float temp = dht.readTemperature();
+  float hum = dht.readHumidity();
+
+  // on efface la 2e ligne avant d'ecrire dessus
+  lcd.setCursor(0, 1);
+  lcd.print("                ");
+  lcd.setCursor(0, 1);
+
+  if (isnan(temp) || isnan(hum)) {
+    lcd.print("Erreur capteur");
+    Serial.println("Erreur lecture DHT22");
+    return;
   }
 
-  // 3. Lire le DHT22 toutes les 2 secondes
-  if (tempsActuel - dernierTempsCapteur >= 2000)
-  {
-    dernierTempsCapteur = tempsActuel;
+  // 223 = symbole degre sur ce LCD
+  char ligne[17];
+  snprintf(ligne, sizeof(ligne), "T %.1f%cC/H %.1f%%", temp, 223, hum);
+  lcd.print(ligne);
 
-    float t = dht.readTemperature();
-    float h = dht.readHumidity();
-
-    if (!isnan(t) && !isnan(h))
-    {
-      temperature = t;
-      humidite = h;
-
-      // Mettre a jour le bargraphe
-      afficherBargraphe();
-
-      // Convertir les valeurs en texte
-      snprintf(txtT, sizeof(txtT), "%.1f", temperature);
-      snprintf(txtH, sizeof(txtH), "%.1f", humidite);
-
-      // Affichage sur le port serie
-      Serial.print("IP : ");
-      Serial.println(adresseIP);
-
-      Serial.print("Temperature : ");
-      Serial.print(txtT);
-      Serial.println(" C");
-
-      Serial.print("Humidite : ");
-      Serial.print(txtH);
-      Serial.println(" %");
-
-      Serial.println();
-
-      // Affichage LCD : temperature et humidite
-      snprintf(ligne, sizeof(ligne),
-               "T:%sC H:%s%%", txtT, txtH);
-
-      lcd.setCursor(0, 1);
-      lcd.print("                ");
-      lcd.setCursor(0, 1);
-      lcd.print(ligne);
-    }
-    else
-    {
-      Serial.println("Erreur de lecture du DHT22");
-    }
-  }
+  Serial.print("T = ");
+  Serial.print(temp, 1);
+  Serial.print(" C   H = ");
+  Serial.print(hum, 1);
+  Serial.println(" %");
 }
