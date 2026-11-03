@@ -16,3 +16,12 @@ node_modules/
 chemin_vers_les_dossier_build
 ~$*
 arduino_secrets.h
+# parametres du broker MQTT (identifiants)
+config_mqtt.py
+# base de donnees locale
+*.db
+# captures reseau (contiennent le mot de passe MQTT en clair)
+*.pcapng
+*.pcapng.gz
+Wireshark/
+__pycache__/

@@ -1,0 +1,28 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "MQTT lecture",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/console_mqtt_lecture/main.py",
+            "cwd": "${workspaceFolder}/console_mqtt_lecture",
+            "console": "externalTerminal"
+        },
+        {
+            "name": "MQTT ecriture",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/console_mqtt_ecriture/main.py",
+            "cwd": "${workspaceFolder}/console_mqtt_ecriture",
+            "console": "externalTerminal"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Lecture + Ecriture (3.5)",
+            "configurations": ["MQTT lecture", "MQTT ecriture"],
+            "stopAll": true
+        }
+    ]
+}
