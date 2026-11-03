@@ -24,6 +24,14 @@
             "program": "${workspaceFolder}/console_mqtt_thread/main.py",
             "cwd": "${workspaceFolder}/console_mqtt_thread",
             "console": "externalTerminal"
+        },
+        {
+            "name": "IHM simple (4)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/ihm_mqtt_simple/main.py",
+            "cwd": "${workspaceFolder}/ihm_mqtt_simple",
+            "console": "integratedTerminal"
         }
     ],
     "compounds": [
