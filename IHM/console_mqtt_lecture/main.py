@@ -1,14 +1,14 @@
-# Projet IOT - Construction de l'IHM
-# Partie 3.3 : client MQTT en lecture (abonnement aux donnees du capteur)
+# Projet IOT - IHM du capteur TempHumiX
+# Partie 3.3 - Client MQTT en lecture
 
 from client_mqtt import ClientMQTT
 
 id_pc = 48566
 
-# adresse et identifiants du broker dans config_mqtt.py (non envoye sur GitHub)
+# parametres du broker dans config_mqtt.py (pas sur GitHub)
 from config_mqtt import broker, port, username, password
 
-# memes noms de topics que le programme Arduino (en majuscules, MQTT respecte la casse)
+# memes topics que l'Arduino (MQTT respecte les majuscules)
 topics = [
     f"/iot/VERSION_{id_pc}",
     f"/iot/TEMPERATURE_{id_pc}",
@@ -28,7 +28,7 @@ if __name__ == '__main__':
     for topic in topics:
         mqtt.subscribe_mqtt(topic)
 
-    # Attente des valeurs souscrites avec timeout=0 (Ctrl+C ou bouton Stop pour arreter)
+    # attente des messages (Ctrl+C pour arreter)
     try:
         mqtt.wait_mqtt(timeout=0)
     except KeyboardInterrupt:

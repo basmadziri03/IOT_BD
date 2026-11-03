@@ -1,18 +1,18 @@
-# Projet IOT - Construction de l'IHM
-# Partie 3.4 : client MQTT en ecriture (envoi des commandes au capteur)
+# Projet IOT - IHM du capteur TempHumiX
+# Partie 3.4 - Client MQTT en ecriture (menu des commandes)
 
 from client_mqtt import ClientMQTT
 
 id_pc = 48566
 
-# adresse et identifiants du broker dans config_mqtt.py (non envoye sur GitHub)
+# parametres du broker dans config_mqtt.py (pas sur GitHub)
 from config_mqtt import broker, port, username, password
 
 topic_commande = f"/iot/COMMAND_{id_pc}"
 topic_bargraphe = f"/iot/BARGRAPH_{id_pc}"
 topic_periode = f"/iot/BLINK_{id_pc}"
 
-# codes commande du paragraphe 2.2
+# codes commande
 SYNCHRO_NTP = 10
 DEMARRAGE_MESURE = 20
 ARRET_MESURE = 30
@@ -22,7 +22,7 @@ CLIGNOTEMENT_PERSO = 60
 
 
 def lire_entier(question, mini, maxi):
-    # redemande tant que la saisie n'est pas un entier dans [mini, maxi]
+    # redemande tant que la saisie n'est pas valide
     while True:
         saisie = input(question)
         if saisie.isdigit() and mini <= int(saisie) <= maxi:
@@ -36,14 +36,14 @@ def synchroniser(mqtt):
 
 
 def demarrer_mesures(mqtt):
-    # mesure demarree => clignotement rapide pour le signaler a l'utilisateur
+    # mesure en marche = clignotement rapide
     mqtt.publish_mqtt(topic_commande, DEMARRAGE_MESURE)
     print(f"Démarrage des mesures sur le capteur : {id_pc}")
     mqtt.publish_mqtt(topic_commande, CLIGNOTEMENT_RAPIDE)
 
 
 def arreter_mesures(mqtt):
-    # mesure arretee => clignotement lent
+    # mesure arretee = clignotement lent
     mqtt.publish_mqtt(topic_commande, ARRET_MESURE)
     print(f"Arrêt des mesures sur le capteur : {id_pc}")
     mqtt.publish_mqtt(topic_commande, CLIGNOTEMENT_LENT)
@@ -60,7 +60,7 @@ def clignoter_rapide(mqtt):
 
 
 def clignoter_perso(mqtt):
-    # le programme Arduino n'accepte que des multiples de 100 ms
+    # l'Arduino veut un multiple de 100 ms
     periode = lire_entier("Période du clignotement en ms (multiple de 100) : ", 100, 10000)
     if periode % 100 != 0:
         periode = round(periode / 100) * 100
@@ -80,9 +80,9 @@ if __name__ == '__main__':
     print("Démarrage de l'application")
     print("==========================")
     print("Instanciation de votre ClientMQTT")
-    # 'E' dans l'Id : deux clients connectes en meme temps ne peuvent pas avoir le meme Id (3.5)
+    # Id different du programme en lecture (3.5)
     mqtt = ClientMQTT(broker, port, f"Client_E{id_pc}", username, password)
-    # boucle reseau en arriere-plan pour garder la connexion en vie pendant les input()
+    # paho en arriere-plan pendant les input()
     if mqtt.connect_mqtt(boucle_fond=True) is None:
         raise SystemExit("Fin de l'application")
 

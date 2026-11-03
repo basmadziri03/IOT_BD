@@ -1,8 +1,8 @@
-// Projet IOT - TempHumiX
-// Partie 6.1.6 : on ne publie plus que quand c'est utile
-//  - VERSION seulement apres une synchro NTP demandee par la commande 10
-//  - TEMPERATURE, HUMIDITY et GET_DATE seulement si la temperature ou l'humidite a change
-// (WiFi, NTP, publication et souscription MQTT des parties 6.1.3 a 6.1.5 conserves)
+// Projet IOT - Boitier TempHumiX (Arduino UNO R4 WiFi)
+// - mesure la temperature et l'humidite (DHT22) et les affiche sur le LCD
+// - se connecte au WiFi et met l'heure a jour avec le serveur NTP
+// - publie les mesures sur le broker MQTT (seulement quand elles changent)
+// - recoit les commandes : COMMAND, BARGRAPH et BLINK
 
 #include <Wire.h>
 #include <rgb_lcd.h>
@@ -11,22 +11,23 @@
 #include <WiFiS3.h>
 #include <NTPClient.h>
 #include <ArduinoMqttClient.h>
-#include "arduino_secrets.h"   // SSID, mot de passe WiFi et identifiants MQTT, pas envoye sur GitHub
+#include "arduino_secrets.h"   // identifiants WiFi et MQTT (pas sur GitHub)
 
-#define VERSION_NUM "1.0"            // format X.Y demande pour le topic VERSION
-#define VERSION "V" VERSION_NUM      // affiche sur l'ecran d'accueil
+// ----- Parametres -----
+
+#define VERSION_NUM "1.0"            // format X.Y
+#define VERSION "V" VERSION_NUM      // pour l'ecran d'accueil
 #define LED_VIE 2
 #define PIN_DHT A0
 
-// LEDs du bargraphe (meme cablage que le bargraphe de la partie 1)
+// bargraphe sur D3 a D12
 #define BAR_PREMIERE 3
 #define BAR_DERNIERE 12
 
-// numero du PC (etiquette code-barre 44xxx au-dessus du poste)
+// numero du PC (etiquette au-dessus du poste)
 #define PC_ID "48566"
 
-// la boucle tourne toutes les 50 ms pour pouvoir faire clignoter la LED
-// avec une periode multiple de 100 ms (demi-periode multiple de 50 ms)
+// la loop tourne toutes les 50 ms pour gerer des periodes multiples de 100 ms
 #define TICK 50
 #define PERIODE_NORMALE 500   // 2 Hz
 #define PERIODE_LENTE 1000    // 1 Hz
@@ -35,51 +36,57 @@
 rgb_lcd lcd;
 DHT dht(PIN_DHT, DHT22);
 
-// serveur NTP de l'ecole, +3600 s pour etre a l'heure francaise (heure d'hiver)
+// ----- Objets -----
+
+// serveur NTP de l'ecole, +3600 s pour l'heure francaise
 WiFiUDP udp;
 NTPClient ntp(udp, IPAddress(192, 168, 1, 254), 3600);
 
-// broker Mosquitto (paragraphe 5.1.2)
+// broker Mosquitto
 WiFiClient wifiClient;
 MqttClient mqttClient(wifiClient);
 const char broker[] = "192.168.1.1";
 const int port = 1883;
 
+// ----- Variables -----
+
 int etat = 0;
-int tick = 0;           // une etape de la machine d'etat tous les 10 ticks = 500 ms
+int tick = 0;           // 10 ticks = 500 ms
 bool ledAllumee = false;
 bool wifiOk = false;
-bool heureOk = false;   // passe a true des que le NTP a repondu au moins une fois
-int compteurNtp = 0;    // pour retenter la synchro regulierement
-int compteurMqtt = 0;   // pour retenter la connexion au broker regulierement
+bool heureOk = false;   // true quand le NTP a repondu une fois
+int compteurNtp = 0;
+int compteurMqtt = 0;
 
-// clignotement de la LED de vie, modifiable par COMMAND et BLINK
+// LED de vie
 int periodeLed = PERIODE_NORMALE;
-int periodeBlink = PERIODE_NORMALE;   // derniere periode recue sur BLINK
-bool modePerso = false;               // true apres la commande 60
+int periodeBlink = PERIODE_NORMALE;   // periode recue sur BLINK
+bool modePerso = false;               // commande 60
 int compteurLed = 0;
 
-bool mesureActive = true;     // commandes 20 / 30
-bool demandeSynchro = false;  // commande 10, traitee dans la loop
+bool mesureActive = true;     // commandes 20 et 30
+bool demandeSynchro = false;  // commande 10
 
-// derniere mesure valide, publiee sur MQTT
+// derniere mesure lue
 float derniereTemp = 0;
 float derniereHum = 0;
 bool mesureOk = false;
 
-// dernieres valeurs publiees, en dixiemes (ex : 23.4 C -> 234)
-// on compare des entiers car on publie au dixieme : 23.41 et 23.44 donnent le meme "23.4"
-// -9999 = rien publie encore, donc la 1ere mesure est toujours envoyee
+// dernieres valeurs publiees en dixiemes (23.4 -> 234)
+// -9999 au depart pour que la 1ere mesure soit toujours publiee
 int tempPubliee = -9999;
 int humPubliee = -9999;
 
+// ----- WiFi, MQTT et NTP -----
+
+// retourne true si on a une adresse IP
 bool setup_wifi() {
   Serial.print("Connexion a ");
   Serial.println(SECRET_SSID);
 
   WiFi.begin(SECRET_SSID, SECRET_PASS);
 
-  // on laisse 10 s max pour avoir une IP, sinon on abandonne
+  // 10 s maximum
   for (int i = 0; i < 20; i++) {
     if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
       Serial.print("Connecte, IP : ");
@@ -93,7 +100,7 @@ bool setup_wifi() {
   return false;
 }
 
-// construit le topic /iot/<nom>_<PC_ID>, ex : /iot/TEMPERATURE_48566
+// donne le topic complet, ex : /iot/TEMPERATURE_48566
 void construireTopic(char* topic, int taille, const char* nom) {
   snprintf(topic, taille, "/iot/%s_%s", nom, PC_ID);
 }
@@ -107,8 +114,7 @@ void souscrire(const char* nom) {
   Serial.println(topic);
 }
 
-// retourne 0 si OK, sinon le code erreur MQTT
-// (-1 = timeout, -2 = connexion refusee, 4 = mauvais login, 5 = non autorise...)
+// retourne 0 si OK, sinon le code d'erreur MQTT
 int setup_mqtt() {
   if (!wifiOk) return MQTT_CONNECTION_REFUSED;
 
@@ -127,7 +133,7 @@ int setup_mqtt() {
 
   Serial.println("MQTT : connecte");
 
-  // les abonnements sont perdus a chaque deconnexion, on les refait ici
+  // on se reabonne a chaque connexion
   mqttClient.onMessage(onMqttMessage);
   souscrire("COMMAND");
   souscrire("BARGRAPH");
@@ -135,16 +141,15 @@ int setup_mqtt() {
   return 0;
 }
 
+// met le RTC a l'heure du serveur NTP
 bool synchroHeure() {
   if (!wifiOk) return false;
 
-  // forceUpdate attend la reponse 1 s max, donc ca ne bloque pas longtemps
   if (!ntp.forceUpdate()) {
     Serial.println("NTP : pas de reponse");
     return false;
   }
 
-  // on recopie l'heure recue dans le RTC
   RTCTime heureNtp((time_t)ntp.getEpochTime());
   RTC.setTime(heureNtp);
 
@@ -152,6 +157,8 @@ bool synchroHeure() {
   Serial.println(ntp.getFormattedTime());
   return true;
 }
+
+// ----- Programme principal -----
 
 void setup() {
   Serial.begin(9600);
@@ -166,7 +173,7 @@ void setup() {
   lcd.setRGB(0, 128, 128);
   lcd.print("Connexion WiFi..");
 
-  // heure par defaut, au cas ou le NTP ne repond pas
+  // heure par defaut si le NTP ne repond pas
   RTC.begin();
   RTCTime depart(1, Month::JANUARY, 2026, 0, 0, 0, DayOfWeek::THURSDAY, SaveLight::SAVING_TIME_INACTIVE);
   RTC.setTime(depart);
@@ -179,17 +186,17 @@ void setup() {
     setup_mqtt();
   }
 
-  // ecran d'accueil pendant 3 s avant l'affichage classique
+  // ecran d'accueil pendant 3 s
   ecranAccueil();
   delay(3000);
   lcd.clear();
 }
 
 void loop() {
-  // a appeler souvent : garde la connexion en vie et declenche onMqttMessage
+  // lit les messages MQTT recus
   mqttClient.poll();
 
-  // LED de vie : on l'inverse toutes les demi-periodes
+  // LED de vie
   compteurLed += TICK;
   if (compteurLed >= periodeLed / 2) {
     compteurLed = 0;
@@ -197,12 +204,11 @@ void loop() {
     digitalWrite(LED_VIE, ledAllumee);
   }
 
-  // commande 10 : on fait la synchro ici et pas dans le callback MQTT
+  // commande 10 : synchro NTP puis publication de la version
   if (demandeSynchro) {
     demandeSynchro = false;
     if (synchroHeure()) {
       heureOk = true;
-      // 6.1.6 a) : la version n'est publiee que lors de cette synchro
       if (mqttClient.connected()) publier("VERSION", VERSION_NUM);
     }
   }
@@ -216,10 +222,10 @@ void loop() {
   delay(TICK);
 }
 
-// appelee toutes les 500 ms
+// machine d'etat appelee toutes les 500 ms
 void machineEtat() {
   switch (etat) {
-    case 0:   // t = 0 s : date + capteur + publication MQTT (toutes les 2 s)
+    case 0:   // toutes les 2 s : date, mesure et publication
       afficherDate();
       if (mesureActive) {
         lireCapteur();
@@ -230,13 +236,12 @@ void machineEtat() {
       publierDonnees();
       break;
 
-    case 2:   // t = 1 s : juste la date
+    case 2:   // 1 s plus tard : la date
       afficherDate();
       break;
   }
 
-  // resynchro NTP : toutes les 10 s tant que ca n'a jamais marche,
-  // puis toutes les 60 s une fois qu'on a eu l'heure
+  // synchro NTP toutes les 10 s si ca n'a jamais marche, sinon toutes les 60 s
   compteurNtp++;
   int limite = heureOk ? 120 : 20;
   if (compteurNtp >= limite) {
@@ -247,11 +252,13 @@ void machineEtat() {
   etat = (etat + 1) % 4;
 }
 
+// ----- Affichage -----
+
 void ecranAccueil() {
   RTCTime t;
   RTC.getTime(t);
 
-  // ligne 1 : version + date, ligne 2 : adresse IP
+  // ligne 1 : version et date, ligne 2 : adresse IP
   char ligne[17];
   snprintf(ligne, sizeof(ligne), "%s  %02d/%02d/%d", VERSION,
            t.getDayOfMonth(), Month2int(t.getMonth()), t.getYear());
@@ -269,7 +276,7 @@ void ecranAccueil() {
 void afficherDate() {
   lcd.setCursor(0, 0);
 
-  // tant que le NTP n'a jamais repondu, l'heure du RTC est fausse, on le signale
+  // pas d'heure fiable tant que le NTP n'a pas repondu
   if (!heureOk) {
     lcd.print("Synchro NTP KO  ");
     return;
@@ -278,7 +285,7 @@ void afficherDate() {
   RTCTime t;
   RTC.getTime(t);
 
-  // pas assez de place pour l'annee ET les secondes sur 16 caracteres
+  // pas la place pour l'annee sur 16 caracteres
   char ligne[17];
   snprintf(ligne, sizeof(ligne), "%02d/%02d %02d:%02d:%02d",
            t.getDayOfMonth(), Month2int(t.getMonth()),
@@ -291,7 +298,7 @@ void lireCapteur() {
   float temp = dht.readTemperature();
   float hum = dht.readHumidity();
 
-  // on efface la 2e ligne avant d'ecrire dessus
+  // on efface la ligne 2
   lcd.setCursor(0, 1);
   lcd.print("                ");
   lcd.setCursor(0, 1);
@@ -307,7 +314,7 @@ void lireCapteur() {
   derniereHum = hum;
   mesureOk = true;
 
-  // 223 = symbole degre sur ce LCD
+  // 223 = symbole degre
   char ligne[17];
   snprintf(ligne, sizeof(ligne), "T %.1f%cC/H %.1f%%", temp, 223, hum);
   lcd.print(ligne);
@@ -318,6 +325,8 @@ void lireCapteur() {
   Serial.print(hum, 1);
   Serial.println(" %");
 }
+
+// ----- Publication MQTT -----
 
 void publier(const char* nom, const char* valeur) {
   char topic[40];
@@ -332,39 +341,36 @@ void publier(const char* nom, const char* valeur) {
   Serial.println(valeur);
 }
 
-// appelee toutes les 2 s : publie TEMPERATURE, HUMIDITY et GET_DATE
-// seulement si la temperature ou l'humidite a change (6.1.6 b)
+// publie TEMPERATURE, HUMIDITY et GET_DATE si une valeur a change
 void publierDonnees() {
   if (!mqttClient.connected()) {
-    // on retente la connexion toutes les 10 s (5 appels x 2 s) pour ne pas bloquer
+    // nouvel essai de connexion toutes les 10 s
     compteurMqtt++;
     if (compteurMqtt < 5) return;
     compteurMqtt = 0;
     if (setup_mqtt() != 0) return;
   }
 
-  // rien a publier si la mesure est arretee (commande 30) ou si le capteur ne repond pas
+  // rien a publier si la mesure est arretee ou en erreur
   if (!mesureActive || !mesureOk) return;
 
-  // passage en dixiemes, arrondi comme le "%.1f" de la publication
   int temp10 = lround(derniereTemp * 10);
   int hum10 = lround(derniereHum * 10);
 
-  if (temp10 == tempPubliee && hum10 == humPubliee) return;   // rien n'a change
+  if (temp10 == tempPubliee && hum10 == humPubliee) return;   // pas de changement
 
   tempPubliee = temp10;
   humPubliee = hum10;
 
   char valeur[24];
 
-  // au dixieme de degre / de pourcent
   snprintf(valeur, sizeof(valeur), "%.1f", derniereTemp);
   publier("TEMPERATURE", valeur);
 
   snprintf(valeur, sizeof(valeur), "%.1f", derniereHum);
   publier("HUMIDITY", valeur);
 
-  // date de la mesure, format DD/MM/YYYY HH:MM:SS
+  // date au format DD/MM/YYYY HH:MM:SS
   RTCTime t;
   RTC.getTime(t);
   snprintf(valeur, sizeof(valeur), "%02d/%02d/%04d %02d:%02d:%02d",
@@ -373,12 +379,14 @@ void publierDonnees() {
   publier("GET_DATE", valeur);
 }
 
-// appelee par mqttClient.poll() quand un message arrive sur un topic souscrit
+// ----- Reception MQTT -----
+
+// appelee par mqttClient.poll() quand un message arrive
 void onMqttMessage(int tailleMessage) {
   // acquisition du topic
   String topic = mqttClient.messageTopic();
 
-  // acquisition du message (15 caracteres max, ca suffit pour un nombre)
+  // acquisition du message
   char message[16];
   int i = 0;
   while (mqttClient.available()) {
@@ -400,13 +408,13 @@ void onMqttMessage(int tailleMessage) {
   } else if (topic.indexOf("BARGRAPH") >= 0) {
     afficherBargraphe(valeur);
   } else if (topic.indexOf("BLINK") >= 0) {
-    // la periode doit etre un multiple de 100 ms
+    // periode multiple de 100 ms obligatoire
     if (valeur <= 0 || valeur % 100 != 0) {
       Serial.println("BLINK refuse : periode multiple de 100 ms attendue");
       return;
     }
     periodeBlink = valeur;
-    if (modePerso) periodeLed = periodeBlink;   // deja en mode 60 : on applique tout de suite
+    if (modePerso) periodeLed = periodeBlink;
 
     Serial.print("BLINK : periode enregistree = ");
     Serial.print(periodeBlink);
@@ -442,7 +450,7 @@ void traiterCommande(int code) {
       return;
   }
 
-  // pour verifier sur le moniteur serie que la commande a bien ete appliquee
+  // affichage pour verifier la commande
   Serial.print("Commande ");
   Serial.print(code);
   Serial.print(" appliquee -> LED : periode = ");
@@ -451,7 +459,7 @@ void traiterCommande(int code) {
   Serial.println(mesureActive ? "active" : "arretee");
 }
 
-// 0 -> aucune LED, 1023 -> toutes les LEDs du bargraphe allumees
+// 0 = aucune LED, 1023 = toutes les LEDs
 void afficherBargraphe(int valeur) {
   valeur = constrain(valeur, 0, 1023);
 

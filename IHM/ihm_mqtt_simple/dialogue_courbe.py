@@ -1,12 +1,12 @@
-# Projet IOT - Construction de l'IHM
-# Partie 6.4 : boite de dialogue d'affichage des courbes archivees dans IOT.db
+# Projet IOT - IHM du capteur TempHumiX
+# Fenetre des courbes (donnees de IOT.db)
 
 import os
 import sqlite3
 from datetime import datetime
 
 import matplotlib
-matplotlib.use("Agg")   # dessin en memoire, l'image est ensuite affichee par Qt
+matplotlib.use("Agg")   # dessin en memoire puis affichage dans Qt
 import matplotlib.dates as mdates
 from matplotlib import pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -23,7 +23,7 @@ id_pc = 48566
 database_name = os.path.join(DOSSIER, "IOT.db")
 table_name = "IOT_DATA"
 
-# meme format que les dates enregistrees dans la base (voir client_mqtt.py)
+# format des dates dans la base
 FORMAT_BASE = "yyyy-MM-dd HH:mm:ss"
 
 
@@ -32,7 +32,7 @@ class CourbeDialog(QDialog, Ui_GraphWindow):
         super().__init__()
         self.setupUi(self)
 
-        # intervalle propose par defaut : la derniere heure
+        # par defaut : la derniere heure
         dte = QDateTime.currentDateTime()
         dts = dte.addSecs(-3600)
 
@@ -52,11 +52,11 @@ class CourbeDialog(QDialog, Ui_GraphWindow):
         width, height = int(width), int(height)
         buf = canvas.buffer_rgba()
         image = QImage(buf, width, height, QImage.Format.Format_RGBA8888)
-        # copie : l'image ne doit plus dependre du buffer de matplotlib une fois la figure fermee
+        # copie car la figure est fermee ensuite
         return QPixmap.fromImage(image.copy())
 
     def afficher_courbe(self):
-        # dates converties au format de la base, sinon BETWEEN compare mal (texte JJ/MM/AAAA)
+        # dates au format de la base pour le BETWEEN
         debut = self.dteStartTime.dateTime().toString(FORMAT_BASE)
         fin = self.dteEndTime.dateTime().toString(FORMAT_BASE)
 
@@ -77,11 +77,11 @@ class CourbeDialog(QDialog, Ui_GraphWindow):
         temp_y = [r[1] for r in rows]
         humi_y = [r[2] for r in rows]
 
-        # figure a la taille de la zone d'affichage
+        # figure de la taille de la zone d'affichage
         taille = self.graphicsView.viewport().size()
         fig, ax = plt.subplots(figsize=(taille.width() / 100, taille.height() / 100), dpi=100)
 
-        # temperature et humidite n'ont pas la meme echelle : un axe vertical chacune
+        # un axe pour la temperature, un pour l'humidite
         ax.plot(date_x, temp_y, marker="o", markersize=3, color="tab:red", label="Température (°C)")
         ax.set_ylabel("Température (°C)", color="tab:red")
         ax.tick_params(axis="y", labelcolor="tab:red")
@@ -93,7 +93,7 @@ class CourbeDialog(QDialog, Ui_GraphWindow):
 
         ax.set_title(f"Données capteur IdO {id_pc} ({len(rows)} mesures)")
         ax.set_xlabel("Date")
-        # graduations adaptees a la duree affichee (secondes, minutes, heures ou jours)
+        # graduations adaptees a la duree affichee
         localisateur = mdates.AutoDateLocator()
         ax.xaxis.set_major_locator(localisateur)
         ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(localisateur))
@@ -101,7 +101,7 @@ class CourbeDialog(QDialog, Ui_GraphWindow):
         fig.tight_layout()
 
         pixmap = self.figure_to_pixmap(fig)
-        plt.close(fig)   # libere la memoire de matplotlib
+        plt.close(fig)   # libere la memoire
 
         item = QGraphicsPixmapItem(pixmap)
         self.scene.addItem(item)

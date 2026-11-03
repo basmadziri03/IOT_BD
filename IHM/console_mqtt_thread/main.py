@@ -1,7 +1,6 @@
-# Projet IOT - Construction de l'IHM
-# Partie 3.6.3 : fusion des deux programmes precedents
-#  - un thread ThreadMQTT recoit les donnees du capteur en arriere-plan
-#  - le programme principal affiche le menu et envoie les commandes
+# Projet IOT - IHM du capteur TempHumiX
+# Partie 3.6 - Lecture et ecriture dans le meme programme
+# le thread recoit les donnees, le menu envoie les commandes
 
 import time
 
@@ -10,14 +9,14 @@ from thread_mqtt import ThreadMQTT
 
 id_pc = 48566
 
-# adresse et identifiants du broker dans config_mqtt.py (non envoye sur GitHub)
+# parametres du broker dans config_mqtt.py (pas sur GitHub)
 from config_mqtt import broker, port, username, password
 
 topic_commande = f"/iot/COMMAND_{id_pc}"
 topic_bargraphe = f"/iot/BARGRAPH_{id_pc}"
 topic_periode = f"/iot/BLINK_{id_pc}"
 
-# codes commande du paragraphe 2.2
+# codes commande
 SYNCHRO_NTP = 10
 DEMARRAGE_MESURE = 20
 ARRET_MESURE = 30
@@ -27,7 +26,7 @@ CLIGNOTEMENT_PERSO = 60
 
 
 def lire_entier(question, mini, maxi):
-    # redemande tant que la saisie n'est pas un entier dans [mini, maxi]
+    # redemande tant que la saisie n'est pas valide
     while True:
         saisie = input(question)
         if saisie.isdigit() and mini <= int(saisie) <= maxi:
@@ -41,14 +40,14 @@ def synchroniser(mqtt):
 
 
 def demarrer_mesures(mqtt):
-    # mesure demarree => clignotement rapide pour le signaler a l'utilisateur
+    # mesure en marche = clignotement rapide
     mqtt.publish_mqtt(topic_commande, DEMARRAGE_MESURE)
     print(f"Démarrage des mesures sur le capteur : {id_pc}")
     mqtt.publish_mqtt(topic_commande, CLIGNOTEMENT_RAPIDE)
 
 
 def arreter_mesures(mqtt):
-    # mesure arretee => clignotement lent
+    # mesure arretee = clignotement lent
     mqtt.publish_mqtt(topic_commande, ARRET_MESURE)
     print(f"Arrêt des mesures sur le capteur : {id_pc}")
     mqtt.publish_mqtt(topic_commande, CLIGNOTEMENT_LENT)
@@ -65,7 +64,7 @@ def clignoter_rapide(mqtt):
 
 
 def clignoter_perso(mqtt):
-    # le programme Arduino n'accepte que des multiples de 100 ms
+    # l'Arduino veut un multiple de 100 ms
     periode = lire_entier("Période du clignotement en ms (multiple de 100) : ", 100, 10000)
     if periode % 100 != 0:
         periode = round(periode / 100) * 100
@@ -82,7 +81,7 @@ def ecrire_bargraphe(mqtt):
 
 
 def afficher_valeurs(mqtt):
-    # lecture des dernieres valeurs memorisees par ClientMQTT (3.6.2)
+    # dernieres valeurs recues par le thread
     print(f"Capteur {id_pc} - version : {mqtt.version or '?'}")
     print(f"  Date et heure : {mqtt.date_IdO or 'pas encore recue'}")
     print(f"  Température   : {mqtt.temperature or '--'} °C")
@@ -96,14 +95,13 @@ if __name__ == '__main__':
     mqtt = ClientMQTT(broker, port, f"Client_{id_pc}", username, password)
     if mqtt.connect_mqtt() is None:
         raise SystemExit("Fin de l'application")
-    # les receptions ne sont plus affichees au fil de l'eau pour ne pas couper le menu :
-    # on les consulte avec le choix A
+    # on n'affiche plus chaque reception (sinon ca coupe le menu)
     mqtt.debug = False
 
-    # 3.6.3 a) et b) : creation et lancement du thread de lecture
+    # creation et lancement du thread
     thread_mqtt = ThreadMQTT(mqtt)
     thread_mqtt.start()
-    time.sleep(1)   # laisse le thread se connecter et s'abonner avant d'afficher le menu
+    time.sleep(1)   # le temps que le thread se connecte
 
     car = ' '
     while car.upper() != 'Q':
@@ -141,7 +139,7 @@ if __name__ == '__main__':
             case _:
                 print("Choix inconnu")
 
-    # arret propre : on attend la fin du thread avant de se deconnecter
+    # arret du thread puis deconnexion
     thread_mqtt.stopthread()
     thread_mqtt.join()
     mqtt.disconnect_mqtt()

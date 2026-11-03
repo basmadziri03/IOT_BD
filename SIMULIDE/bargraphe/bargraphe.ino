@@ -1,27 +1,29 @@
-// Définition des broches correspondant à votre montage (de 3 à 11)
-const int premiereLED = 3;
+// Partie 1 - Chenillard sur le bargraphe
+// Les LEDs s'allument une par une, aller puis retour
+
+const int premiereLED = 3;   // LEDs branchees de D3 a D12
 const int derniereLED = 12;
-const int vitesse = 100; // Vitesse en millisecondes (100 ms)
+const int vitesse = 100;     // temps d'allumage de chaque LED en ms
 
 void setup() {
-  // Configuration de toutes les broches de la séquence en sortie (OUTPUT)
+  // toutes les broches du bargraphe en sortie
   for (int thisPin = premiereLED; thisPin <= derniereLED; thisPin++) {
     pinMode(thisPin, OUTPUT);
   }
 }
 
 void loop() {
-  // Balayage de la première vers la dernière LED
+  // aller : de la premiere a la derniere LED
   for (int thisPin = premiereLED; thisPin <= derniereLED; thisPin++) {
-    digitalWrite(thisPin, HIGH);   // Allume la LED
-    delay(vitesse);                // Attend 100 ms
-    digitalWrite(thisPin, LOW);    // Éteint la LED
+    digitalWrite(thisPin, HIGH);
+    delay(vitesse);
+    digitalWrite(thisPin, LOW);
   }
 
-  // Balayage retour de la dernière vers la première LED
+  // retour : de la derniere a la premiere LED
   for (int thisPin = derniereLED; thisPin >= premiereLED; thisPin--) {
-    digitalWrite(thisPin, HIGH);   // Allume la LED
-    delay(vitesse);                // Attend 100 ms
-    digitalWrite(thisPin, LOW);    // Éteint la LED
+    digitalWrite(thisPin, HIGH);
+    delay(vitesse);
+    digitalWrite(thisPin, LOW);
   }
 }

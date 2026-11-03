@@ -1,27 +1,30 @@
-#Fichiers temporaires et du systèmes
-*.tmp
-*.log
-
-#Paramètres locaux et services
+# Identifiants (WiFi, broker MQTT) : jamais sur GitHub
+arduino_secrets.h
+config_mqtt.py
 .env
 .env.*
 
-#Environnements Python et caches
-_pycache_/
+# Fichiers generes par l'Arduino IDE
+build/
+SIMULIDE/**/sketch_oct20*/
+SIMULIDE/TempHumix/
+
+# Python
+__pycache__/
 .venv/
 venv/
 
-#Répertoires de dépendances ou de compilation node_modules/
-node_modules/
-chemin_vers_les_dossier_build
-~$*
-arduino_secrets.h
-# parametres du broker MQTT (identifiants)
-config_mqtt.py
-# base de donnees locale
+# Base de donnees locale (mesures archivees)
 *.db
-# captures reseau (contiennent le mot de passe MQTT en clair)
+
+# Captures Wireshark (le mot de passe MQTT y est en clair)
+Wireshark/
 *.pcapng
 *.pcapng.gz
-Wireshark/
-__pycache__/
+
+# Fichiers temporaires
+*.tmp
+*.log
+~$*
+.gitignore.txt
+Compte rendu.docx

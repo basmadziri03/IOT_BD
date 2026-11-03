@@ -1,10 +1,8 @@
-# Projet IOT - Construction de l'IHM
-# Partie 4 : IHM simple capteur sous PySide6
-# Partie 5 : les mesures recues sont archivees dans IOT.db (voir client_mqtt.py)
-# Partie 6 : affichage des courbes archivees (voir dialogue_courbe.py)
-#  - connexion / deconnexion au broker MQTT avec les parametres saisis
-#  - affichage de la date, de la temperature et de l'humidite toutes les secondes
-#  - envoi des commandes au capteur
+# Projet IOT - IHM du capteur TempHumiX
+# Fenetre principale (PySide6)
+# - connexion au broker et affichage des mesures
+# - envoi des commandes au capteur
+# - archivage dans IOT.db et affichage des courbes
 
 import sys
 
@@ -17,7 +15,7 @@ from thread_mqtt import ThreadMQTT
 from mon_ihm import Ui_MainWindow
 from dialogue_courbe import CourbeDialog
 
-# valeurs proposees par defaut dans l'interface (config_mqtt.py n'est pas envoye sur GitHub)
+# valeurs par defaut de la fenetre (config_mqtt.py, pas sur GitHub)
 from config_mqtt import broker, port, username, password
 
 id_pc = 48566
@@ -26,7 +24,7 @@ topic_commande = f"/iot/COMMAND_{id_pc}"
 topic_bargraphe = f"/iot/BARGRAPH_{id_pc}"
 topic_periode = f"/iot/BLINK_{id_pc}"
 
-# codes commande du paragraphe 2.2
+# codes commande
 SYNCHRO_NTP = 10
 DEMARRAGE_MESURE = 20
 ARRET_MESURE = 30
@@ -44,13 +42,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.thread_mqtt = None
         self.debug = True
 
-        # parametres du broker pre-remplis
+        # champs pre-remplis
         self.lneIpAddress.setText(broker)
         self.lnePort.setText(str(port))
         self.lneUser.setText(username)
         self.lnePassword.setText(password)
 
-        # on n'accepte que des saisies valides
+        # controle des saisies
         octet = r"(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)"
         self.lneIpAddress.setValidator(QRegularExpressionValidator(
             QRegularExpression(rf"^{octet}(\.{octet}){{3}}$"), self))
@@ -79,7 +77,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.etatConnexion(False)
         self.statusbar.showMessage("Non connecté au broker MQTT")
 
-    # active ou grise les boutons selon l'etat de la connexion
+    # grise les boutons selon la connexion
     def etatConnexion(self, connecte):
         self.btnConnect.setEnabled(not connecte)
         self.btnDisconnect.setEnabled(connecte)
@@ -87,7 +85,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         for champ in (self.lneIpAddress, self.lnePort, self.lneUser, self.lnePassword):
             champ.setEnabled(not connecte)
 
-    # affiche les dernieres valeurs recues par le thread (appelee toutes les 1000 ms)
+    # mise a jour de l'affichage (timer de 1 s)
     def display(self):
         if self.mqtt is None:
             return
@@ -102,14 +100,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             self.statusbar.showMessage("Connexion au broker MQTT en cours ou perdue...")
 
-    # lit les parametres, se connecte, lance le thread de lecture et le timer d'affichage
+    # connexion, lancement du thread et du timer
     def connectMQTT(self):
         if not self.lneIpAddress.hasAcceptableInput() or not self.lnePort.hasAcceptableInput():
             self.statusbar.showMessage("Adresse IP ou port invalide")
             return
 
         self.statusbar.showMessage(f"Connexion à {self.lneIpAddress.text()}...")
-        QApplication.processEvents()   # affiche le message avant l'attente de connexion
+        QApplication.processEvents()   # affiche le message tout de suite
 
         self.mqtt = ClientMQTT(self.lneIpAddress.text(), int(self.lnePort.text()),
                                f"Client_{id_pc}", self.lneUser.text(), self.lnePassword.text())
@@ -119,13 +117,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.statusbar.showMessage("Broker injoignable : vérifier le WiFi IoT et l'adresse IP")
             return
 
-        # un thread ne peut etre lance qu'une fois : on en recree un a chaque connexion
+        # un thread ne demarre qu'une fois : nouveau thread a chaque connexion
         self.thread_mqtt = ThreadMQTT(self.mqtt)
         self.thread_mqtt.start()
         self.timer.start(1000)
         self.etatConnexion(True)
 
-    # arrete le timer d'affichage et le thread de lecture, puis se deconnecte
+    # arret du timer et du thread, puis deconnexion
     def disconnectMQTT(self):
         self.timer.stop()
         if self.thread_mqtt is not None:
@@ -144,16 +142,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.mqtt.publish_mqtt(topic, valeur)
         self.statusbar.showMessage(message)
 
-    # envoi de la commande de mise a l'heure du capteur (NTP)
+    # mise a l'heure du capteur (NTP)
     def synchroDateTime(self):
         self.envoyer(topic_commande, SYNCHRO_NTP, "Synchronisation NTP demandée")
 
-    # demarrage de la mesure, signale par un clignotement rapide
+    # demarrage des mesures + clignotement rapide
     def startMeasure(self):
         self.envoyer(topic_commande, DEMARRAGE_MESURE, "Démarrage des mesures")
         self.envoyer(topic_commande, CLIGNOTEMENT_RAPIDE, "Mesures démarrées (clignotement rapide)")
 
-    # arret de la mesure, signale par un clignotement lent
+    # arret des mesures + clignotement lent
     def stopMeasure(self):
         self.envoyer(topic_commande, ARRET_MESURE, "Arrêt des mesures")
         self.envoyer(topic_commande, CLIGNOTEMENT_LENT, "Mesures arrêtées (clignotement lent)")
@@ -164,20 +162,20 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def slowBlink(self):
         self.envoyer(topic_commande, CLIGNOTEMENT_LENT, "Clignotement lent")
 
-    # lit la periode saisie, l'envoie sur BLINK puis demande le clignotement personnalise
+    # envoi de la periode sur BLINK puis commande 60
     def customBlink(self):
         if not self.lnePeriod.hasAcceptableInput():
             self.statusbar.showMessage("Période invalide (100 à 10000 ms)")
             return
         periode = int(self.lnePeriod.text())
         if periode % 100 != 0:
-            # le programme Arduino n'accepte que des multiples de 100 ms
+            # l'Arduino veut un multiple de 100 ms
             periode = round(periode / 100) * 100
             self.lnePeriod.setText(str(periode))
         self.envoyer(topic_periode, periode, f"Période de clignotement : {periode} ms")
         self.envoyer(topic_commande, CLIGNOTEMENT_PERSO, f"Clignotement personnalisé : {periode} ms")
 
-    # lit la valeur saisie (0 a 1023) et la publie sur le bargraphe
+    # envoi de la valeur du bargraphe (0 a 1023)
     def setBargraph(self):
         if not self.lneBargraph.hasAcceptableInput():
             self.statusbar.showMessage("Valeur du bargraphe invalide (0 à 1023)")
@@ -185,8 +183,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         valeur = int(self.lneBargraph.text())
         self.envoyer(topic_bargraphe, valeur, f"Bargraphe : {valeur}")
 
-    # 6.4 : ouverture de la boite de dialogue des courbes (fenetre modale)
-    # fonctionne aussi sans connexion au broker, a partir des mesures deja archivees
+    # ouverture de la fenetre des courbes
+    # (marche aussi sans connexion, on lit la base)
     def showGraph(self):
         dialogue = CourbeDialog()
         dialogue.exec()
@@ -195,11 +193,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         QMessageBox.information(self, "A propos",
                                 f"Capteur IdO {id_pc}\nIHM MQTT - Projet IOT\nIMT Nord Europe - CERI SN - PPI")
 
-    # quitte l'application (menu Fichier > Quitter)
+    # menu Fichier > Quitter
     def quit(self):
         self.close()
 
-    # fermeture de la fenetre : on se deconnecte proprement
+    # a la fermeture on se deconnecte
     def closeEvent(self, event):
         self.disconnectMQTT()
         event.accept()
