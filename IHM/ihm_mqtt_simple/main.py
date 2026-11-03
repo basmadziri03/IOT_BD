@@ -1,6 +1,7 @@
 # Projet IOT - Construction de l'IHM
 # Partie 4 : IHM simple capteur sous PySide6
 # Partie 5 : les mesures recues sont archivees dans IOT.db (voir client_mqtt.py)
+# Partie 6 : affichage des courbes archivees (voir dialogue_courbe.py)
 #  - connexion / deconnexion au broker MQTT avec les parametres saisis
 #  - affichage de la date, de la temperature et de l'humidite toutes les secondes
 #  - envoi des commandes au capteur
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
 from client_mqtt import ClientMQTT
 from thread_mqtt import ThreadMQTT
 from mon_ihm import Ui_MainWindow
+from dialogue_courbe import CourbeDialog
 
 # valeurs proposees par defaut dans l'interface (config_mqtt.py n'est pas envoye sur GitHub)
 from config_mqtt import broker, port, username, password
@@ -69,6 +71,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.btnBlink.clicked.connect(self.customBlink)
         self.lneBargraph.returnPressed.connect(self.setBargraph)
         self.btnBargraph.clicked.connect(self.setBargraph)
+        self.btnGraph.clicked.connect(self.showGraph)
+        self.actionGraph.triggered.connect(self.showGraph)
         self.actionQuit.triggered.connect(self.quit)
         self.actionAbout.triggered.connect(self.about)
 
@@ -180,6 +184,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return
         valeur = int(self.lneBargraph.text())
         self.envoyer(topic_bargraphe, valeur, f"Bargraphe : {valeur}")
+
+    # 6.4 : ouverture de la boite de dialogue des courbes (fenetre modale)
+    # fonctionne aussi sans connexion au broker, a partir des mesures deja archivees
+    def showGraph(self):
+        dialogue = CourbeDialog()
+        dialogue.exec()
 
     def about(self):
         QMessageBox.information(self, "A propos",

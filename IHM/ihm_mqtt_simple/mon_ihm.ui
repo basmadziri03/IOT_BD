@@ -322,6 +322,19 @@ Nord Europe</string>
          </property>
         </widget>
        </item>
+       <item row="5" column="0" colspan="2">
+        <widget class="QPushButton" name="btnGraph">
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>36</height>
+          </size>
+         </property>
+         <property name="text">
+          <string>Afficher les courbes archivées...</string>
+         </property>
+        </widget>
+       </item>
       </layout>
      </widget>
     </item>
@@ -332,6 +345,8 @@ Nord Europe</string>
     <property name="title">
      <string>Fichier</string>
     </property>
+    <addaction name="actionGraph"/>
+    <addaction name="separator"/>
     <addaction name="actionQuit"/>
    </widget>
    <widget class="QMenu" name="menuAide">
@@ -344,6 +359,14 @@ Nord Europe</string>
    <addaction name="menuAide"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
+  <action name="actionGraph">
+   <property name="text">
+    <string>Courbes archivées...</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+G</string>
+   </property>
+  </action>
   <action name="actionQuit">
    <property name="text">
     <string>Quitter</string>

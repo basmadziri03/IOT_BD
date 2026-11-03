@@ -26,6 +26,8 @@ class Ui_MainWindow(object):
         if not MainWindow.objectName():
             MainWindow.setObjectName(u"MainWindow")
         MainWindow.resize(440, 600)
+        self.actionGraph = QAction(MainWindow)
+        self.actionGraph.setObjectName(u"actionGraph")
         self.actionQuit = QAction(MainWindow)
         self.actionQuit.setObjectName(u"actionQuit")
         self.actionAbout = QAction(MainWindow)
@@ -216,6 +218,12 @@ class Ui_MainWindow(object):
 
         self.layoutCommands.addWidget(self.lneBargraph, 4, 1, 1, 1)
 
+        self.btnGraph = QPushButton(self.grpCommands)
+        self.btnGraph.setObjectName(u"btnGraph")
+        self.btnGraph.setMinimumSize(QSize(0, 36))
+
+        self.layoutCommands.addWidget(self.btnGraph, 5, 0, 1, 2)
+
 
         self.layoutPrincipal.addWidget(self.grpCommands)
 
@@ -233,6 +241,8 @@ class Ui_MainWindow(object):
 
         self.menubar.addAction(self.menuFichier.menuAction())
         self.menubar.addAction(self.menuAide.menuAction())
+        self.menuFichier.addAction(self.actionGraph)
+        self.menuFichier.addSeparator()
         self.menuFichier.addAction(self.actionQuit)
         self.menuAide.addAction(self.actionAbout)
 
@@ -243,6 +253,10 @@ class Ui_MainWindow(object):
 
     def retranslateUi(self, MainWindow):
         MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"Mon capteur IDO via MQTT (c)2026 CERI SN - PPI", None))
+        self.actionGraph.setText(QCoreApplication.translate("MainWindow", u"Courbes archiv\u00e9es...", None))
+#if QT_CONFIG(shortcut)
+        self.actionGraph.setShortcut(QCoreApplication.translate("MainWindow", u"Ctrl+G", None))
+#endif // QT_CONFIG(shortcut)
         self.actionQuit.setText(QCoreApplication.translate("MainWindow", u"Quitter", None))
 #if QT_CONFIG(shortcut)
         self.actionQuit.setShortcut(QCoreApplication.translate("MainWindow", u"Ctrl+Q", None))
@@ -272,6 +286,7 @@ class Ui_MainWindow(object):
         self.lblMs.setText(QCoreApplication.translate("MainWindow", u"<b>ms</b>", None))
         self.btnBargraph.setText(QCoreApplication.translate("MainWindow", u"Valeur du bargraphe :", None))
         self.lneBargraph.setPlaceholderText(QCoreApplication.translate("MainWindow", u"0 \u00e0 1023, puis Entr\u00e9e", None))
+        self.btnGraph.setText(QCoreApplication.translate("MainWindow", u"Afficher les courbes archiv\u00e9es...", None))
         self.menuFichier.setTitle(QCoreApplication.translate("MainWindow", u"Fichier", None))
         self.menuAide.setTitle(QCoreApplication.translate("MainWindow", u"Aide", None))
     # retranslateUi
