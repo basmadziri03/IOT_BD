@@ -1,6 +1,8 @@
 // Projet IOT - TempHumiX
-// Partie 6.1.5 : souscription aux topics COMMAND, BARGRAPH et BLINK
-// (WiFi, NTP et publication MQTT des parties 6.1.3 et 6.1.4 conserves)
+// Partie 6.1.6 : on ne publie plus que quand c'est utile
+//  - VERSION seulement apres une synchro NTP demandee par la commande 10
+//  - TEMPERATURE, HUMIDITY et GET_DATE seulement si la temperature ou l'humidite a change
+// (WiFi, NTP, publication et souscription MQTT des parties 6.1.3 a 6.1.5 conserves)
 
 #include <Wire.h>
 #include <rgb_lcd.h>
@@ -64,6 +66,12 @@ bool demandeSynchro = false;  // commande 10, traitee dans la loop
 float derniereTemp = 0;
 float derniereHum = 0;
 bool mesureOk = false;
+
+// dernieres valeurs publiees, en dixiemes (ex : 23.4 C -> 234)
+// on compare des entiers car on publie au dixieme : 23.41 et 23.44 donnent le meme "23.4"
+// -9999 = rien publie encore, donc la 1ere mesure est toujours envoyee
+int tempPubliee = -9999;
+int humPubliee = -9999;
 
 bool setup_wifi() {
   Serial.print("Connexion a ");
@@ -192,7 +200,11 @@ void loop() {
   // commande 10 : on fait la synchro ici et pas dans le callback MQTT
   if (demandeSynchro) {
     demandeSynchro = false;
-    if (synchroHeure()) heureOk = true;
+    if (synchroHeure()) {
+      heureOk = true;
+      // 6.1.6 a) : la version n'est publiee que lors de cette synchro
+      if (mqttClient.connected()) publier("VERSION", VERSION_NUM);
+    }
   }
 
   tick++;
@@ -320,7 +332,8 @@ void publier(const char* nom, const char* valeur) {
   Serial.println(valeur);
 }
 
-// publie les 4 topics du paragraphe 3.2
+// appelee toutes les 2 s : publie TEMPERATURE, HUMIDITY et GET_DATE
+// seulement si la temperature ou l'humidite a change (6.1.6 b)
 void publierDonnees() {
   if (!mqttClient.connected()) {
     // on retente la connexion toutes les 10 s (5 appels x 2 s) pour ne pas bloquer
@@ -330,20 +343,28 @@ void publierDonnees() {
     if (setup_mqtt() != 0) return;
   }
 
+  // rien a publier si la mesure est arretee (commande 30) ou si le capteur ne repond pas
+  if (!mesureActive || !mesureOk) return;
+
+  // passage en dixiemes, arrondi comme le "%.1f" de la publication
+  int temp10 = lround(derniereTemp * 10);
+  int hum10 = lround(derniereHum * 10);
+
+  if (temp10 == tempPubliee && hum10 == humPubliee) return;   // rien n'a change
+
+  tempPubliee = temp10;
+  humPubliee = hum10;
+
   char valeur[24];
 
-  publier("VERSION", VERSION_NUM);
+  // au dixieme de degre / de pourcent
+  snprintf(valeur, sizeof(valeur), "%.1f", derniereTemp);
+  publier("TEMPERATURE", valeur);
 
-  // au dixieme de degre / de pourcent, seulement si la mesure tourne
-  if (mesureActive && mesureOk) {
-    snprintf(valeur, sizeof(valeur), "%.1f", derniereTemp);
-    publier("TEMPERATURE", valeur);
+  snprintf(valeur, sizeof(valeur), "%.1f", derniereHum);
+  publier("HUMIDITY", valeur);
 
-    snprintf(valeur, sizeof(valeur), "%.1f", derniereHum);
-    publier("HUMIDITY", valeur);
-  }
-
-  // format DD/MM/YYYY HH:MM:SS
+  // date de la mesure, format DD/MM/YYYY HH:MM:SS
   RTCTime t;
   RTC.getTime(t);
   snprintf(valeur, sizeof(valeur), "%02d/%02d/%04d %02d:%02d:%02d",
