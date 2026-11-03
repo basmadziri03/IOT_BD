@@ -16,6 +16,14 @@
             "program": "${workspaceFolder}/console_mqtt_ecriture/main.py",
             "cwd": "${workspaceFolder}/console_mqtt_ecriture",
             "console": "externalTerminal"
+        },
+        {
+            "name": "MQTT thread (3.6)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/console_mqtt_thread/main.py",
+            "cwd": "${workspaceFolder}/console_mqtt_thread",
+            "console": "externalTerminal"
         }
     ],
     "compounds": [
