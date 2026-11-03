@@ -1,5 +1,6 @@
 // Projet IOT - TempHumiX
-// Partie 6.1.3 : connexion au WiFi IoT + mise a l'heure du RTC par NTP
+// Partie 6.1.4 : publication des donnees du capteur sur le broker MQTT
+// (WiFi + NTP de la partie 6.1.3 conserves)
 
 #include <Wire.h>
 #include <rgb_lcd.h>
@@ -7,11 +8,16 @@
 #include "RTC.h"
 #include <WiFiS3.h>
 #include <NTPClient.h>
-#include "arduino_secrets.h"   // SSID et mot de passe, pas envoye sur GitHub
+#include <ArduinoMqttClient.h>
+#include "arduino_secrets.h"   // SSID, mot de passe WiFi et identifiants MQTT, pas envoye sur GitHub
 
-#define VERSION "V1.0"
+#define VERSION_NUM "1.0"            // format X.Y demande pour le topic VERSION
+#define VERSION "V" VERSION_NUM      // affiche sur l'ecran d'accueil
 #define LED_VIE 2
 #define PIN_DHT A0
+
+// numero du PC (etiquette code-barre 44xxx au-dessus du poste) : A MODIFIER
+#define PC_ID "48566"
 
 rgb_lcd lcd;
 DHT dht(PIN_DHT, DHT22);
@@ -20,11 +26,23 @@ DHT dht(PIN_DHT, DHT22);
 WiFiUDP udp;
 NTPClient ntp(udp, IPAddress(192, 168, 1, 254), 3600);
 
+// broker Mosquitto (paragraphe 5.1.2)
+WiFiClient wifiClient;
+MqttClient mqttClient(wifiClient);
+const char broker[] = "192.168.1.1";
+const int port = 1883;
+
 int etat = 0;
 bool ledAllumee = false;
 bool wifiOk = false;
 bool heureOk = false;   // passe a true des que le NTP a repondu au moins une fois
 int compteurNtp = 0;    // pour retenter la synchro regulierement
+int compteurMqtt = 0;   // pour retenter la connexion au broker regulierement
+
+// derniere mesure valide, publiee sur MQTT
+float derniereTemp = 0;
+float derniereHum = 0;
+bool mesureOk = false;
 
 bool setup_wifi() {
   Serial.print("Connexion a ");
@@ -44,6 +62,28 @@ bool setup_wifi() {
 
   Serial.println("Pas de connexion WiFi");
   return false;
+}
+
+// retourne 0 si OK, sinon le code erreur MQTT
+// (-1 = timeout, -2 = connexion refusee, 4 = mauvais login, 5 = non autorise...)
+int setup_mqtt() {
+  if (!wifiOk) return MQTT_CONNECTION_REFUSED;
+
+  mqttClient.setId("IdO_Client_" PC_ID);
+  mqttClient.setUsernamePassword(SECRET_MQTT_USER, SECRET_MQTT_PASS);
+
+  Serial.print("Connexion au broker ");
+  Serial.println(broker);
+
+  if (!mqttClient.connect(broker, port)) {
+    int erreur = mqttClient.connectError();
+    Serial.print("MQTT : echec, code ");
+    Serial.println(erreur);
+    return erreur;
+  }
+
+  Serial.println("MQTT : connecte");
+  return 0;
 }
 
 bool synchroHeure() {
@@ -84,6 +124,7 @@ void setup() {
   if (wifiOk) {
     ntp.begin();
     heureOk = synchroHeure();
+    setup_mqtt();
   }
 
   // ecran d'accueil pendant 3 s avant l'affichage classique
@@ -93,13 +134,17 @@ void setup() {
 }
 
 void loop() {
+  // a appeler souvent : garde la connexion au broker en vie (keep alive)
+  mqttClient.poll();
+
   ledAllumee = !ledAllumee;
   digitalWrite(LED_VIE, ledAllumee);
 
   switch (etat) {
-    case 0:   // t = 0 s : date + capteur
+    case 0:   // t = 0 s : date + capteur + publication MQTT (toutes les 2 s)
       afficherDate();
       lireCapteur();
+      publierDonnees();
       break;
 
     case 2:   // t = 1 s : juste la date
@@ -172,8 +217,13 @@ void lireCapteur() {
   if (isnan(temp) || isnan(hum)) {
     lcd.print("Erreur capteur");
     Serial.println("Erreur lecture DHT22");
+    mesureOk = false;
     return;
   }
+
+  derniereTemp = temp;
+  derniereHum = hum;
+  mesureOk = true;
 
   // 223 = symbole degre sur ce LCD
   char ligne[17];
@@ -185,4 +235,50 @@ void lireCapteur() {
   Serial.print(" C   H = ");
   Serial.print(hum, 1);
   Serial.println(" %");
+}
+
+// publie une valeur sur le topic /iot/<nom>_<PC_ID>, ex : /iot/TEMPERATURE_44370
+void publier(const char* nom, const char* valeur) {
+  char topic[40];
+  snprintf(topic, sizeof(topic), "/iot/%s_%s", nom, PC_ID);
+
+  mqttClient.beginMessage(topic);
+  mqttClient.print(valeur);
+  mqttClient.endMessage();
+
+  Serial.print(topic);
+  Serial.print(" -> ");
+  Serial.println(valeur);
+}
+
+// publie les 4 topics du paragraphe 3.2
+void publierDonnees() {
+  if (!mqttClient.connected()) {
+    // on retente la connexion toutes les 10 s (5 appels x 2 s) pour ne pas bloquer
+    compteurMqtt++;
+    if (compteurMqtt < 5) return;
+    compteurMqtt = 0;
+    if (setup_mqtt() != 0) return;
+  }
+
+  char valeur[24];
+
+  publier("VERSION", VERSION_NUM);
+
+  // au dixieme de degre / de pourcent
+  if (mesureOk) {
+    snprintf(valeur, sizeof(valeur), "%.1f", derniereTemp);
+    publier("TEMPERATURE", valeur);
+
+    snprintf(valeur, sizeof(valeur), "%.1f", derniereHum);
+    publier("HUMIDITY", valeur);
+  }
+
+  // format DD/MM/YYYY HH:MM:SS
+  RTCTime t;
+  RTC.getTime(t);
+  snprintf(valeur, sizeof(valeur), "%02d/%02d/%04d %02d:%02d:%02d",
+           t.getDayOfMonth(), Month2int(t.getMonth()), t.getYear(),
+           t.getHour(), t.getMinutes(), t.getSeconds());
+  publier("GET_DATE", valeur);
 }
