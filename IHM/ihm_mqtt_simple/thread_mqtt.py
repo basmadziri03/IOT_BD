@@ -1,5 +1,6 @@
 # Projet IOT - Construction de l'IHM
 # Partie 3.6.1 : thread qui ecoute le broker MQTT en arriere-plan
+# Partie 5.2 c) : ouverture et fermeture de la base SQLite par le thread
 
 from threading import Thread
 
@@ -21,12 +22,18 @@ class ThreadMQTT(Thread):
         self.stop = False
 
     def run(self):
+        # 5.2 c) : la base est ouverte dans le thread, car SQLite n'autorise une connexion
+        # que dans le thread qui l'a creee, et c'est ce thread qui recoit les messages
+        self.mqtt.connect_sqlite()
+
         for topic in (topic_version, topic_temperature, topic_humidite, topic_datetime):
             self.mqtt.subscribe_mqtt(topic)
 
         # on traite le reseau par tranches d'1 s pour pouvoir verifier self.stop regulierement
         while not self.stop:
             self.mqtt.wait_mqtt(timeout=1.0)
+
+        self.mqtt.disconnect_sqlite()
 
     def stopthread(self):
         self.stop = True

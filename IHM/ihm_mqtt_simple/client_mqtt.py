@@ -1,10 +1,24 @@
 # Projet IOT - Construction de l'IHM
 # Partie 3.2 : classe ClientMQTT basee sur la librairie paho-mqtt
 # Partie 3.6.2 : les valeurs recues sont memorisees dans la classe
+# Partie 5 : archivage des mesures dans une base SQLite
 
+import os
+import sqlite3
 import time
+from datetime import datetime
 
 from paho.mqtt import client as mqtt_client
+
+# la base est creee a cote de ce fichier, quel que soit le dossier de lancement
+DOSSIER = os.path.dirname(os.path.abspath(__file__))
+
+
+def date_capteur_vers_iso(date_capteur):
+    # "03/11/2026 15:46:21" -> "2026-11-03 15:46:21"
+    # au format annee-mois-jour, l'ordre alphabetique est aussi l'ordre chronologique :
+    # c'est indispensable pour les requetes SQLite BETWEEN et ORDER BY sur la date
+    return datetime.strptime(date_capteur, "%d/%m/%Y %H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")
 
 
 class ClientMQTT:
@@ -26,6 +40,43 @@ class ClientMQTT:
         self.humidite = None
         self.date_IdO = None
         self.debug = True   # affiche aussi chaque reception sur la console
+
+        # 5 : base SQLite d'archivage
+        self.conn = None
+        self.tablename = None
+        self.nb_enregistrements = 0
+
+    # 5.2 a) : connexion a la base SQLite (creee si elle n'existe pas) et creation de la table
+    def connect_sqlite(self, database_name="IOT.db", tablename="IOT_DATA"):
+        self.tablename = tablename
+        self.conn = sqlite3.connect(os.path.join(DOSSIER, database_name))
+        db = self.conn.cursor()
+        db.execute(f"CREATE TABLE IF NOT EXISTS {tablename} "
+                   "(Id_capteur integer, Date text, Version text, Temperature real, Humidite real)")
+        self.conn.commit()
+        print(f"Base SQLite ouverte : {database_name}, table {tablename}")
+
+    # 5.2 b) : deconnexion de la base SQLite
+    def disconnect_sqlite(self):
+        if self.conn is not None:
+            self.conn.close()
+            self.conn = None
+            print("Base SQLite fermée")
+
+    # 5.2 d) : sauvegarde d'une mesure complete dans la base
+    def enregistrer_mesure(self, id_capteur):
+        if self.conn is None or self.temperature is None or self.humidite is None:
+            return
+        try:
+            date_iso = date_capteur_vers_iso(self.date_IdO)
+        except ValueError:
+            print(f"Date du capteur illisible, mesure non archivée : {self.date_IdO}")
+            return
+        self.conn.cursor().execute(f"INSERT INTO {self.tablename} VALUES (?,?,?,?,?)",
+                                   (id_capteur, date_iso, self.version,
+                                    float(self.temperature), float(self.humidite)))
+        self.conn.commit()
+        self.nb_enregistrements += 1
 
     # 3.2.1 : connexion au broker
     # boucle_fond = True lance la boucle reseau de paho dans un thread a part
@@ -94,6 +145,11 @@ class ClientMQTT:
 
             if self.debug:
                 print(f"Réception : `{valeur}` depuis '{msg.topic}'")
+
+            # 5.2 d) : le capteur publie TEMPERATURE, HUMIDITY puis GET_DATE (6.1.6) ;
+            # GET_DATE est donc le dernier topic d'une mesure : on archive a sa reception
+            if "GET_DATE_" in msg.topic:
+                self.enregistrer_mesure(int(msg.topic[-5:]))
 
         self.topics.append((topic, qos))
         self.client.subscribe(topic, qos)

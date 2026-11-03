@@ -1,5 +1,6 @@
 # Projet IOT - Construction de l'IHM
 # Partie 4 : IHM simple capteur sous PySide6
+# Partie 5 : les mesures recues sont archivees dans IOT.db (voir client_mqtt.py)
 #  - connexion / deconnexion au broker MQTT avec les parametres saisis
 #  - affichage de la date, de la temperature et de l'humidite toutes les secondes
 #  - envoi des commandes au capteur
@@ -92,7 +93,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         if self.mqtt.client is not None and self.mqtt.client.is_connected():
             version = f" - capteur V{self.mqtt.version}" if self.mqtt.version else ""
-            self.statusbar.showMessage(f"Connexion au broker MQTT OK{version}")
+            self.statusbar.showMessage(f"Connexion au broker MQTT OK{version}"
+                                       f" - {self.mqtt.nb_enregistrements} mesure(s) archivée(s)")
         else:
             self.statusbar.showMessage("Connexion au broker MQTT en cours ou perdue...")
 
