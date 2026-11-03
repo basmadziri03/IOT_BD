@@ -1,6 +1,6 @@
 // Projet IOT - TempHumiX
-// Partie 6.1.4 : publication des donnees du capteur sur le broker MQTT
-// (WiFi + NTP de la partie 6.1.3 conserves)
+// Partie 6.1.5 : souscription aux topics COMMAND, BARGRAPH et BLINK
+// (WiFi, NTP et publication MQTT des parties 6.1.3 et 6.1.4 conserves)
 
 #include <Wire.h>
 #include <rgb_lcd.h>
@@ -16,8 +16,19 @@
 #define LED_VIE 2
 #define PIN_DHT A0
 
-// numero du PC (etiquette code-barre 44xxx au-dessus du poste) : A MODIFIER
+// LEDs du bargraphe (meme cablage que le bargraphe de la partie 1)
+#define BAR_PREMIERE 3
+#define BAR_DERNIERE 12
+
+// numero du PC (etiquette code-barre 44xxx au-dessus du poste)
 #define PC_ID "48566"
+
+// la boucle tourne toutes les 50 ms pour pouvoir faire clignoter la LED
+// avec une periode multiple de 100 ms (demi-periode multiple de 50 ms)
+#define TICK 50
+#define PERIODE_NORMALE 500   // 2 Hz
+#define PERIODE_LENTE 1000    // 1 Hz
+#define PERIODE_RAPIDE 200    // 5 Hz
 
 rgb_lcd lcd;
 DHT dht(PIN_DHT, DHT22);
@@ -33,11 +44,21 @@ const char broker[] = "192.168.1.1";
 const int port = 1883;
 
 int etat = 0;
+int tick = 0;           // une etape de la machine d'etat tous les 10 ticks = 500 ms
 bool ledAllumee = false;
 bool wifiOk = false;
 bool heureOk = false;   // passe a true des que le NTP a repondu au moins une fois
 int compteurNtp = 0;    // pour retenter la synchro regulierement
 int compteurMqtt = 0;   // pour retenter la connexion au broker regulierement
+
+// clignotement de la LED de vie, modifiable par COMMAND et BLINK
+int periodeLed = PERIODE_NORMALE;
+int periodeBlink = PERIODE_NORMALE;   // derniere periode recue sur BLINK
+bool modePerso = false;               // true apres la commande 60
+int compteurLed = 0;
+
+bool mesureActive = true;     // commandes 20 / 30
+bool demandeSynchro = false;  // commande 10, traitee dans la loop
 
 // derniere mesure valide, publiee sur MQTT
 float derniereTemp = 0;
@@ -64,6 +85,20 @@ bool setup_wifi() {
   return false;
 }
 
+// construit le topic /iot/<nom>_<PC_ID>, ex : /iot/TEMPERATURE_48566
+void construireTopic(char* topic, int taille, const char* nom) {
+  snprintf(topic, taille, "/iot/%s_%s", nom, PC_ID);
+}
+
+void souscrire(const char* nom) {
+  char topic[40];
+  construireTopic(topic, sizeof(topic), nom);
+  mqttClient.subscribe(topic);
+
+  Serial.print("Abonne a ");
+  Serial.println(topic);
+}
+
 // retourne 0 si OK, sinon le code erreur MQTT
 // (-1 = timeout, -2 = connexion refusee, 4 = mauvais login, 5 = non autorise...)
 int setup_mqtt() {
@@ -83,6 +118,12 @@ int setup_mqtt() {
   }
 
   Serial.println("MQTT : connecte");
+
+  // les abonnements sont perdus a chaque deconnexion, on les refait ici
+  mqttClient.onMessage(onMqttMessage);
+  souscrire("COMMAND");
+  souscrire("BARGRAPH");
+  souscrire("BLINK");
   return 0;
 }
 
@@ -108,6 +149,9 @@ void setup() {
   Serial.begin(9600);
 
   pinMode(LED_VIE, OUTPUT);
+  for (int pin = BAR_PREMIERE; pin <= BAR_DERNIERE; pin++) {
+    pinMode(pin, OUTPUT);
+  }
   dht.begin();
 
   lcd.begin(16, 2);
@@ -134,16 +178,43 @@ void setup() {
 }
 
 void loop() {
-  // a appeler souvent : garde la connexion au broker en vie (keep alive)
+  // a appeler souvent : garde la connexion en vie et declenche onMqttMessage
   mqttClient.poll();
 
-  ledAllumee = !ledAllumee;
-  digitalWrite(LED_VIE, ledAllumee);
+  // LED de vie : on l'inverse toutes les demi-periodes
+  compteurLed += TICK;
+  if (compteurLed >= periodeLed / 2) {
+    compteurLed = 0;
+    ledAllumee = !ledAllumee;
+    digitalWrite(LED_VIE, ledAllumee);
+  }
 
+  // commande 10 : on fait la synchro ici et pas dans le callback MQTT
+  if (demandeSynchro) {
+    demandeSynchro = false;
+    if (synchroHeure()) heureOk = true;
+  }
+
+  tick++;
+  if (tick >= 500 / TICK) {
+    tick = 0;
+    machineEtat();
+  }
+
+  delay(TICK);
+}
+
+// appelee toutes les 500 ms
+void machineEtat() {
   switch (etat) {
     case 0:   // t = 0 s : date + capteur + publication MQTT (toutes les 2 s)
       afficherDate();
-      lireCapteur();
+      if (mesureActive) {
+        lireCapteur();
+      } else {
+        lcd.setCursor(0, 1);
+        lcd.print("Mesure arretee  ");
+      }
       publierDonnees();
       break;
 
@@ -162,7 +233,6 @@ void loop() {
   }
 
   etat = (etat + 1) % 4;
-  delay(500);
 }
 
 void ecranAccueil() {
@@ -237,10 +307,9 @@ void lireCapteur() {
   Serial.println(" %");
 }
 
-// publie une valeur sur le topic /iot/<nom>_<PC_ID>, ex : /iot/TEMPERATURE_44370
 void publier(const char* nom, const char* valeur) {
   char topic[40];
-  snprintf(topic, sizeof(topic), "/iot/%s_%s", nom, PC_ID);
+  construireTopic(topic, sizeof(topic), nom);
 
   mqttClient.beginMessage(topic);
   mqttClient.print(valeur);
@@ -265,8 +334,8 @@ void publierDonnees() {
 
   publier("VERSION", VERSION_NUM);
 
-  // au dixieme de degre / de pourcent
-  if (mesureOk) {
+  // au dixieme de degre / de pourcent, seulement si la mesure tourne
+  if (mesureActive && mesureOk) {
     snprintf(valeur, sizeof(valeur), "%.1f", derniereTemp);
     publier("TEMPERATURE", valeur);
 
@@ -281,4 +350,98 @@ void publierDonnees() {
            t.getDayOfMonth(), Month2int(t.getMonth()), t.getYear(),
            t.getHour(), t.getMinutes(), t.getSeconds());
   publier("GET_DATE", valeur);
+}
+
+// appelee par mqttClient.poll() quand un message arrive sur un topic souscrit
+void onMqttMessage(int tailleMessage) {
+  // acquisition du topic
+  String topic = mqttClient.messageTopic();
+
+  // acquisition du message (15 caracteres max, ca suffit pour un nombre)
+  char message[16];
+  int i = 0;
+  while (mqttClient.available()) {
+    char c = mqttClient.read();
+    if (i < 15) message[i++] = c;
+  }
+  message[i] = 0;
+
+  // conversion du message en entier
+  int valeur = atoi(message);
+
+  Serial.print("Recu ");
+  Serial.print(topic);
+  Serial.print(" : ");
+  Serial.println(valeur);
+
+  if (topic.indexOf("COMMAND") >= 0) {
+    traiterCommande(valeur);
+  } else if (topic.indexOf("BARGRAPH") >= 0) {
+    afficherBargraphe(valeur);
+  } else if (topic.indexOf("BLINK") >= 0) {
+    // la periode doit etre un multiple de 100 ms
+    if (valeur <= 0 || valeur % 100 != 0) {
+      Serial.println("BLINK refuse : periode multiple de 100 ms attendue");
+      return;
+    }
+    periodeBlink = valeur;
+    if (modePerso) periodeLed = periodeBlink;   // deja en mode 60 : on applique tout de suite
+
+    Serial.print("BLINK : periode enregistree = ");
+    Serial.print(periodeBlink);
+    Serial.println(" ms");
+  }
+}
+
+void traiterCommande(int code) {
+  switch (code) {
+    case 10:   // forcer la mise a la date et l'heure
+      demandeSynchro = true;
+      break;
+    case 20:   // demarrage mesure
+      mesureActive = true;
+      break;
+    case 30:   // arret mesure
+      mesureActive = false;
+      break;
+    case 40:   // clignotement lent
+      modePerso = false;
+      periodeLed = PERIODE_LENTE;
+      break;
+    case 50:   // clignotement rapide
+      modePerso = false;
+      periodeLed = PERIODE_RAPIDE;
+      break;
+    case 60:   // clignotement personnalise (periode recue sur BLINK)
+      modePerso = true;
+      periodeLed = periodeBlink;
+      break;
+    default:
+      Serial.println("Code commande inconnu");
+      return;
+  }
+
+  // pour verifier sur le moniteur serie que la commande a bien ete appliquee
+  Serial.print("Commande ");
+  Serial.print(code);
+  Serial.print(" appliquee -> LED : periode = ");
+  Serial.print(periodeLed);
+  Serial.print(" ms, mesure ");
+  Serial.println(mesureActive ? "active" : "arretee");
+}
+
+// 0 -> aucune LED, 1023 -> toutes les LEDs du bargraphe allumees
+void afficherBargraphe(int valeur) {
+  valeur = constrain(valeur, 0, 1023);
+
+  int nbLeds = BAR_DERNIERE - BAR_PREMIERE + 1;
+  int allumees = map(valeur, 0, 1023, 0, nbLeds);
+
+  for (int i = 0; i < nbLeds; i++) {
+    digitalWrite(BAR_PREMIERE + i, i < allumees ? HIGH : LOW);
+  }
+
+  Serial.print("BARGRAPH : ");
+  Serial.print(allumees);
+  Serial.println(" LED(s) allumee(s)");
 }
