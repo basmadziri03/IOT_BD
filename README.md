@@ -105,7 +105,7 @@ Chaque dossier de `SIMULIDE` contient le programme (`.ino`), la simulation (`.si
    ```
    cd IHM
    python -m venv .venv
-   .venv\Scripts\pip install paho-mqtt PySide6 matplotlib
+   .venv\Scripts\pip install -r requirements.txt
    ```
 2. Dans chaque dossier, copier `config_mqtt.example.py` en `config_mqtt.py` et mettre les identifiants du broker.
 3. Le PC doit être connecté au WiFi **IoT IMT Nord Europe**.
