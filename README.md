@@ -23,11 +23,13 @@ IOT_BD/
 │   ├── TEMPHUMIX.ino
 │   └── arduino_secrets.example.h
 │
-└── IHM/                       Partie 3 : application Python sur le PC
-    ├── console_mqtt_lecture/  client MQTT qui lit les mesures (console)
-    ├── console_mqtt_ecriture/ client MQTT qui envoie les commandes (menu console)
-    ├── console_mqtt_thread/   les deux en même temps grâce à un thread
-    └── ihm_mqtt_simple/       interface graphique PySide6 + SQLite + courbes
+├── IHM/                       Partie 3 : application Python sur le PC
+│   ├── console_mqtt_lecture/  client MQTT qui lit les mesures (console)
+│   ├── console_mqtt_ecriture/ client MQTT qui envoie les commandes (menu console)
+│   ├── console_mqtt_thread/   les deux en même temps grâce à un thread
+│   └── ihm_mqtt_simple/       interface graphique PySide6 + SQLite + courbes
+│
+└── rapport/                   Rapport de projet (PDF, identifiants masqués)
 ```
 
 Chaque dossier de `SIMULIDE` contient le programme (`.ino`), la simulation (`.sim1`) et le programme compilé (`.hex`) chargé par SimulIDE.
